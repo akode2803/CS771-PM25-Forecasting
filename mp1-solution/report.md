@@ -21,7 +21,10 @@ excluded before averaging. Averaging only changes the 15-minute sensor: the mean
 :00 reading by 2.6 on average and by up to 18.5 in single hours, and it uses four readings instead
 of one, so it is less noisy.
 
-**Flags.** Each sensor-hour gets the first rule that applies. Nothing is deleted or filled.
+**Flags.** Each sensor-hour gets the first rule that applies, in the order below, and then every hour of a
+dropped sensor is relabelled `dropped_sensor`. Nothing is deleted or filled. "Caught" counts every hour
+a rule matches; the final file has ok 79,512, dropped_sensor 1,734, stuck 559, spike 141,
+error_code 136, zero 49.
 
 | flag | rule and threshold | caught |
 |---|---|---|
@@ -29,7 +32,7 @@ of one, so it is less noisy.
 | zero | pm25 = 0 (outdoor PM2.5 is never exactly zero) | 813 h, 21 sensors, almost all from 2 sensors |
 | stuck | same value for ≥ 24 consecutive reported hours (real PM2.5 follows a daily cycle) | 1,693 h, 7 sensors, e.g. 78 for 126 h, 14.2 for 74 h |
 | spike | > 200 *and* > 5 × that hour's network median (city median ≈ 35 in the monsoon) | 141 h, half from 4 sensors |
-| outage | fewer than 10% of sensors report that hour | 117 h (5–10 Aug) with **no** sensor reporting at all. Every other hour has ≥ 12%, so 10% cleanly separates the two. |
+| outage | fewer than 10% of sensors report that hour | 117 h (5–10 Aug) with **no** sensor reporting at all. Every other hour has ≥ 12%, so 10% cleanly separates the two. These hours have no readings, so no row carries the flag. |
 | dropped_sensor | > 50% of a sensor's hours flagged | `1203260082` (73%), `1203260068` (58%) |
 
 Correlation of each sensor's ok readings with the median of all other sensors (median r = 0.76)
@@ -109,7 +112,7 @@ training. `neighbourhood` adds little on top of `network` and the station's own 
 nearby stations move together with both.
 
 **More flexible model.** A random forest on the same features and target fits the training months
-far better (train RMSE 19.5 vs 26.6) but is much worse on validation (36.4 vs 28.5). It overfits
+far better (train RMSE 19.5 vs 26.6) but is much worse on validation (36.2 vs 28.5). It overfits
 patterns specific to Jan–Aug (winter smog clearing, a calm monsoon) that don't transfer to the
 Oct–Nov build-up, a season absent from training, and trees cannot extrapolate beyond the targets
 they have seen. Ridge's single smooth rule transfers better, so ridge is the final model.
@@ -189,9 +192,12 @@ the level matters more, because warnings are triggered by fixed thresholds.
 # Part 5: Hidden December test
 
 `submission/forecast.py` loads `model.pkl`, which holds the Part 2 ridge refitted on all 153,036
-noon targets up to 30 Nov with alpha = 300. It also uses the same `features.py` as the notebook
-and `bihar_stations.csv`. Nothing is refitted inside `forecast()`. `check_submission.py` passes:
-median call 0.04 s, maximum 0.26 s (limit 10 s). The November sanity RMSE (41.3, vs 47.8 for
+noon targets up to 30 Nov with alpha = 300, saved as plain numpy arrays (scaler mean and scale,
+coefficients, intercept, smearing term) so it does not depend on the grader's scikit-learn version.
+It also uses the same `features.py` as the notebook and `bihar_stations.csv`. Nothing is refitted
+inside `forecast()`. If a reading were ever missing, it is carried forward from the same station's
+last value, so a gap can't crash a call. `check_submission.py` passes: median call 0.16 s,
+maximum 0.21 s (limit 10 s). The November sanity RMSE (41.3, vs 47.8 for
 persistence) is in-sample after the refit, so it is not a test score.
 
 # Limitations
