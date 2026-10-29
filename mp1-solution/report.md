@@ -96,8 +96,12 @@ error is smallest at the *median*, and for skewed data like PM2.5 these two are 
    the training errors.
 4. We use ridge with standardised features. The scaler is fitted on training rows only, inside a
    scikit-learn pipeline.
-5. At the end we mix the forecast with persistence: 0.9 × our forecast + 0.1 × today's reading.
-   The weight was chosen on validation (we tried 0.5 to 1.0).
+5. We mix the forecast with persistence: 0.9 × our forecast + 0.1 × today's reading. The weight
+   was chosen on validation (we tried 0.5 to 1.0).
+6. **State-wide bias correction**, as used in operational PM2.5 forecasts (e.g. NOAA's Kalman-filter
+   correction). At the issue time we already know how wrong yesterday's forecast was, because its
+   target is the reading at the issue time. We add 0.3 × the state-wide mean of that error (in log
+   space) to today's forecast. The 0.3 is fixed and nothing is refitted.
 
 **Training rows.** 110,448: every 12:00 target from 9 Jan to 31 Aug at every station. We skip the
 first week because some features need 7 days of history. We only use 12:00 issue times, so training
@@ -152,15 +156,23 @@ Ridge learns one simple, smooth rule, and that works better on new months. So ri
 | Persistence | 32.75 / 17.47 | 23.33 / 8.91 | 20.22 / 11.97 | 47.81 / 31.70 |
 | Ridge (29 features) | 29.58 / 18.16 | 20.34 / 10.35 | 19.36 / 13.46 | 43.06 / 30.81 |
 | Our model, before mixing | 28.50 / 16.10 | 20.54 / 8.23 | 17.53 / 11.21 | 41.52 / 29.02 |
-| **Our model (final)** | **28.39 / 15.98** | **20.23 / 8.15** | **17.42 / 11.10** | **41.51 / 28.86** |
+| Our model, mixed, no bias correction | 28.39 / 15.98 | 20.23 / 8.15 | 17.42 / 11.10 | 41.51 / 28.86 |
+| **Our model (final)** | **28.04 / 15.56** | **20.25 / 7.91** | **17.08 / 10.65** | **40.91 / 28.29** |
 
-Our final model beats both baselines on both metrics, overall and in every month. Mixing with
-persistence adds a small gain (28.50 → 28.39). The improvement is real, but small.
+Our final model beats both baselines on both metrics, overall and in every month. Mixing adds a
+little (28.50 → 28.39) and the bias correction more (→ 28.04). We chose its weight (0.3) on Sep–Oct
+only and then checked it on November, which it had not seen: November RMSE went from 41.51 to 40.91.
+It helps most in the Oct–Nov build-up, when a model trained on Jan–Aug is wrong in the same
+direction several days in a row; it cannot foresee sudden clean-ups like 29 Nov. The improvement is
+real, but small.
 
-**Other things we tried that did not help** (validation RMSE): giving recent training months more
-weight (28.7 to 36.7), Huber loss (28.5), gradient boosting with shallow trees (34.7 to 41.1),
-squared and interaction terms (29.3 to 31.0), fewer hourly lags or PCA of the lags (28.5 to 31.5),
-and a smearing correction that changes with the features (28.6).
+**Other things we tried that did not help** (validation RMSE, before bias correction): giving
+recent months more weight (28.7 to 36.7), Huber loss (28.5), gradient boosting (34.7 to 41.1),
+squared and interaction terms (29.3 to 31.0), fewer lags or PCA of the lags (28.5 to 31.5), a
+feature-dependent smearing correction (28.6), latitude/longitude or K-means station clusters
+(28.4), separate models for the dirtiest 2–50% of stations (28.4 to 28.9, and worse on those
+stations themselves), training on the polluted months only (28.7 to 56), an analog ensemble (28.6
+mixed in, 35 alone) and a per-station bias correction (28.3).
 
 **What would help most:** weather forecasts (wind, rain, mixing height, temperature inversions),
 because weather causes most of the day-to-day change in PM2.5. Satellite counts of crop fires
@@ -170,7 +182,7 @@ would also help in the Oct–Nov burning season.
 
 ![Validation RMSE vs lead time (left) and the average Sep–Nov daily cycle (right).](outputs/figures/lead_time.png){width=100%}
 
-| lead | Persistence | Ridge (29) | Our model |
+| lead | Persistence | Ridge (29) | Our model* |
 |---|---|---|---|
 | **1 h (nowcast)** | 23.95 / 10.36 | **18.95** / 8.67 | 19.23 / **8.40** |
 | 3 h | 51.43 | 28.37 | 32.44 |
@@ -178,7 +190,7 @@ would also help in the Oct–Nov burning season.
 | 12 h | 72.74 | 31.70 | 37.18 |
 | **24 h (day-ahead)** | 32.75 / 17.47 | 29.58 / 18.16 | **28.39 / 15.98** |
 
-(Validation RMSE, plus MAE for 1 h and 24 h.)
+(Validation RMSE, plus MAE for 1 h and 24 h. *Without the bias correction, so every lead uses the same rule.)
 
 **Persistence does not get steadily worse with lead time.** Its error is lowest at 1 h, highest at
 12 h (issued at midnight), and low again at 24 h. Persistence just copies the reading at the issue
@@ -208,7 +220,7 @@ all stations). We use the same weights for the observed and the forecast maps.
 | mean over the 91 validation days | station RMSE | map RMSE | pattern correlation |
 |---|---|---|---|
 | Persistence | 28.57 | 15.37 | 0.580 |
-| Our model | 24.76 | 13.88 | 0.616 |
+| Our model | 24.51 | 13.54 | 0.616 |
 
 On our worst day (29 Nov), the air suddenly got much cleaner overnight, but both forecasts stayed at
 the smog level of the day before. That is why the error map is positive almost everywhere.
@@ -231,12 +243,12 @@ matters more, because warnings are given when PM2.5 crosses fixed limits.
 # Part 5: Hidden December test
 
 `submission/forecast.py` loads `model.pkl`. This is our Part 2 ridge, refitted on all 153,036 noon
-targets up to 30 Nov with alpha = 1000 and the same 0.9 / 0.1 mix with persistence. We save it as
-plain numpy arrays (scaler mean and scale, coefficients, intercept, smearing term and mixing weight), so it does not depend on the grader's scikit-learn
+targets up to 30 Nov with alpha = 1000, the same 0.9 / 0.1 mix and the 0.3 bias correction. We save it as
+plain numpy arrays (scaler mean and scale, coefficients, intercept, smearing term and the two weights), so it does not depend on the grader's scikit-learn
 version. It uses the same `features.py` as the notebook, and `bihar_stations.csv`. Nothing is
-refitted inside `forecast()`. If a reading is ever missing, we fill it with the same station's last
-value, so a gap cannot crash a call. `check_submission.py` passes: each call takes under 0.3 s (the limit is
-10 s). The November check gives RMSE 41.2 (persistence: 47.8), but this
+refitted inside `forecast()`; for the bias correction it recomputes yesterday's forecast from the history it is given. If a reading is ever missing, we fill it with the same station's last
+value, so a gap cannot crash a call. `check_submission.py` passes: each call takes about 0.2 s (the limit is
+10 s). The November check gives RMSE 40.8 (persistence: 47.8), but this
 is not a test score, because November is now part of the training data.
 
 # Limitations

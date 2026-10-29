@@ -1,7 +1,7 @@
 """Part 5 submission: next-day 12:00 PM2.5 forecast for all 468 Bihar stations.
 
 The model (a ridge regression on log-scale features) was fitted in the notebook and saved to
-model.pkl as plain numpy arrays (scaler mean and scale, ridge coefficients and intercept, mixing weight), so it
+model.pkl as plain numpy arrays (scaler mean and scale, ridge coefficients and intercept, mixing and bias-correction weights), so it
 does not depend on the grader's scikit-learn version. Here we only load it and compute features.
 Nothing is refitted.
 """
@@ -37,10 +37,17 @@ def forecast(history: pd.DataFrame, issue_time: pd.Timestamp) -> pd.Series:
         A = np.where(np.isnan(A), hour_mean, A)
     p = len(A) - 1                                    # row of the issue time
 
-    X = my_features(A, p, issue_time, NBRS)[SAVED["columns"]].to_numpy()
-    log_change = (X - SAVED["mean"]) / SAVED["scale"] @ SAVED["coef"] + SAVED["intercept"] + SAVED["smear"]
+    def log_forecast(q, t):
+        """Ridge forecast (log scale) for 24 h after row q, using only rows up to q."""
+        X = my_features(A, q, t, NBRS)[SAVED["columns"]].to_numpy()
+        log_change = (X - SAVED["mean"]) / SAVED["scale"] @ SAVED["coef"] + SAVED["intercept"] + SAVED["smear"]
+        return np.maximum(np.log1p(np.clip(A[q], 0, None)) + log_change, 0)
+
+    # State-wide bias correction: yesterday's forecast was for the issue time, so its error is known now
+    yesterday_error = np.log1p(np.clip(A[p], 0, None)) - log_forecast(p - 24, issue_time - pd.Timedelta(hours=24))
+    log_model = log_forecast(p, issue_time) + SAVED["lambda"] * yesterday_error.mean()
+
     today = np.clip(A[p], 0, None)
-    model = np.expm1(np.log1p(today) + log_change)
-    prediction = SAVED["blend"] * model + (1 - SAVED["blend"]) * today      # mix with persistence
+    prediction = SAVED["blend"] * np.expm1(log_model) + (1 - SAVED["blend"]) * today      # mix with persistence
 
     return pd.Series(np.clip(prediction, 0, None), index=STATIONS.index, name="pm25_forecast")
