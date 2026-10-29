@@ -1,131 +1,148 @@
 ---
 title: "CS771 Mini-Project 1: Next-Day PM2.5 Forecasting and Mapping for Bihar"
-subtitle: "Group: _[names and roll numbers]_"
+subtitle: "Group: Akash Kumar (261110008), Aryan Kumar (261110012), Preshit Tiwari (261110047)"
 ---
 
-All numbers below come from `part0_kanpur_cleaning.ipynb` and `bihar_forecasting.ipynb`, which both
-run from top to bottom with fixed seeds. Errors are in µg/m³. "Validation" always means every
-station and every 12:00 target from 1 Sep to 30 Nov (91 days × 468 stations = 42,588 forecasts).
+All numbers in this report come from our two notebooks, `part0_kanpur_cleaning.ipynb` and
+`bihar_forecasting.ipynb`. Both run from top to bottom and give the same results every time. All
+errors are in µg/m³. When we say "validation", we mean every station and every 12:00 target from
+1 Sep to 30 Nov. That is 91 days × 468 stations = 42,588 forecasts.
 
 # Part 0: Cleaning the Kanpur data
 
-**Format.** 76 sensors in three ID styles: 44 with 10-digit IDs, 31 with 8-character IDs and 1 with a
-12-character ID. The 10-digit and 8-character sensors report at most once per hour, at minute :00
-(about 16–19 readings a day). The 12-character sensor reports every 15 minutes. No sensor moves:
-each has one fixed latitude and longitude. 10-digit sensors report whole numbers. 8-character
-sensors report long decimals, which look like averages, at a slightly lower typical level (median
-32 vs 37).
+**What the data looks like.** There are 76 sensors with three kinds of ID: 44 have 10-digit IDs,
+31 have 8-character IDs, and 1 has a 12-character ID. The 10-digit and 8-character sensors send at
+most one reading per hour, always at minute :00, and in practice about 16 to 19 readings a day. The
+12-character sensor sends a reading every 15 minutes. No sensor moves: each one always has the same
+latitude and longitude. The 10-digit sensors send whole numbers. The 8-character sensors send long
+decimals, which look like averages, and their values are a little lower (median 32 against 37).
 
-**Hourly table.** Readings are averaged within each hour, labelled by its start. Error codes are
-excluded before averaging. Averaging only changes the 15-minute sensor: the mean differs from the
-:00 reading by 2.6 on average and by up to 18.5 in single hours, and it uses four readings instead
-of one, so it is less noisy.
+**Hourly table.** We take the average of all readings inside each hour and label the hour by its
+start time. Error codes are removed before taking the average. This only matters for the 15-minute
+sensor. For that sensor, the hourly average differs from the :00 reading by 2.6 on average and by
+up to 18.5 in a single hour. The average uses four readings instead of one, so it is less noisy.
 
-**Flags.** Each sensor-hour gets the first rule that applies, then every hour of a dropped sensor
-is marked `dropped_sensor`. Nothing is deleted or filled. The table counts what each rule catches on
-its own; the final file has ok 79,512, dropped_sensor 1,734, stuck 559, spike 141, error_code 136
-and zero 49.
+**Flags.** Each sensor-hour gets the first rule below that matches it. After that, every hour of a
+dropped sensor is marked `dropped_sensor`. We do not delete or fill anything. The table shows how
+many hours each rule catches on its own. In the final file the counts are: ok 79,512,
+dropped_sensor 1,734, stuck 559, spike 141, error_code 136 and zero 49.
 
-| flag | rule and threshold | caught |
+| flag | rule and why we chose it | caught |
 |---|---|---|
-| error_code | hour contains only the code 999 (exact, repeated, far above the next-highest value of 968) | 136 h, 5 sensors (120 from `1204260025`) |
+| error_code | the hour has only the value 999 (always exactly 999, and far above the next highest value, 968) | 136 h, 5 sensors (120 from `1204260025`) |
 | zero | pm25 = 0 (outdoor PM2.5 is never exactly zero) | 813 h, 21 sensors, almost all from 2 sensors |
-| stuck | same value for ≥ 24 consecutive reported hours (real PM2.5 follows a daily cycle) | 1,693 h, 7 sensors, e.g. 78 for 126 h, 14.2 for 74 h |
-| spike | > 200 *and* > 5 × that hour's network median (city median ≈ 35 in the monsoon) | 141 h, half from 4 sensors |
-| outage | fewer than 10% of sensors report that hour | 117 h (5–10 Aug) with **no** sensor reporting at all. Every other hour has ≥ 12%, so 10% cleanly separates the two. These hours have no readings, so no row carries the flag. |
-| dropped_sensor | > 50% of a sensor's hours flagged | `1203260082` (73%), `1203260068` (58%) |
+| stuck | the same value for 24 or more reported hours in a row (real PM2.5 goes up and down during the day) | 1,693 h, 7 sensors, e.g. 78 for 126 h, 14.2 for 74 h |
+| spike | above 200 *and* more than 5 × that hour's median over all sensors (the city median is about 35 in the monsoon) | 141 h, half from 4 sensors |
+| outage | fewer than 10% of sensors report in that hour | 117 h (5–10 Aug) where **no** sensor reported at all. Every other hour has at least 12%, so 10% separates the two clearly. These hours have no readings, so no row has this flag. |
+| dropped_sensor | more than 50% of a sensor's hours are flagged | `1203260082` (73%), `1203260068` (58%) |
 
-Correlation of each sensor's ok readings with the median of all other sensors (median r = 0.76)
-shows two sensors that barely follow the network: `AC0BFBE34CC7` (r = 0.39) and `U8APQDBX`
-(r = 0.47, also the most spikes). They are reported but not flagged, since a nearby local source
-could also cause a low correlation.
+To find sensors that do not follow the rest of the network, we correlated each sensor's ok
+readings with the median of all the other sensors. The typical correlation is 0.76. Two sensors
+are much lower: `AC0BFBE34CC7` (0.39) and `U8APQDBX` (0.47, which also has the most spikes). We
+report them but do not flag them, because a local pollution source next to a sensor could also
+give a low correlation.
 
-**Calibration.** 21 ten-digit sensors have an eight-character sensor within 3 km. Fitted on July
-and tested on August (ok hours only):
+**Calibration.** 21 of the 10-digit sensors have an 8-character sensor within 3 km. We fitted a
+correction on July and tested it on August, using ok hours only:
 
-| correction (fit on July) | July MAE / RMSE | August MAE / RMSE |
+| correction (fitted on July) | July MAE / RMSE | August MAE / RMSE |
 |---|---|---|
 | none | 10.79 / 16.98 | 11.73 / 18.07 |
 | constant offset (−0.13) | 10.79 / 16.99 | 11.72 / 18.08 |
-| linear, y = 19.9 + 0.48x | 10.46 / 15.45 | 13.11 / 18.81 |
+| straight line, y = 19.9 + 0.48x | 10.46 / 15.45 | 13.11 / 18.81 |
 
-No correction helps in August. Once bad readings are flagged, the families agree on average, so the
-offset is about 0. The linear fit's slope below 1 is regression dilution from noise in x, and it
-overfits July. The real cause shows up per pair: each pair has its own stable offset (between −10
-and +10, correlation 0.92 between July and August), with different signs. So the disagreement is
-location- and unit-specific, not a device-family effect, and one family-wide correction can't
-remove it.
+No correction helps in August. Once the bad readings are flagged, the two families already agree on
+average, so the best constant offset is almost zero. The straight-line fit looks better on July
+but is worse on August, so it only fits the noise in July. Its slope is below 1 because the sensor
+we predict from is itself noisy. The real reason shows up when we look at each pair separately.
+Each pair has its own offset, between −10 and +10, and that offset stays the same from July to
+August (correlation 0.92). Some pairs are positive and some are negative. So the difference comes
+from the place and the individual sensor, not from the device type, and one correction for the
+whole family cannot remove it.
 
-**Summary.** Before: 76 sensors, 82,131 sensor-hours, 27.4% missing. After (ok only): 74 sensors,
-79,512 sensor-hours, 29.7% missing. The daily cycle (IST) is lowest in the afternoon and highest at
-night, even in the monsoon.
+**Before and after.** Before: 76 sensors, 82,131 sensor-hours, 27.4% missing. After (ok rows
+only): 74 sensors, 79,512 sensor-hours, 29.7% missing. In local time (IST), the daily cycle is
+lowest in the afternoon and highest at night, even in the monsoon.
 
 # Part 1: Baselines
 
-The baseline ridge uses 113,256 training rows (242 targets, 3 Jan – 31 Aug, × 468 stations: every
-target with 24 h of history).
+The baseline ridge model uses 113,256 training rows: 242 target days (3 Jan to 31 Aug) × 468
+stations. These are all the targets that have a full 24 hours of history before them.
 
 | | all | Sep | Oct | Nov |
 |---|---|---|---|---|
 | Persistence RMSE / MAE | 32.75 / 17.47 | 23.33 / 8.91 | 20.22 / 11.97 | 47.81 / 31.70 |
 | Ridge (29 features) RMSE / MAE | 29.58 / 18.16 | 20.34 / 10.35 | 19.36 / 13.46 | 43.06 / 30.81 |
 
-**Does one win on both metrics?** No. Ridge wins on RMSE and persistence wins on MAE. Ridge minimises
-squared error, so the rare large misses on polluted days dominate its fit. It learns to shrink
-forecasts towards the average, cutting extreme values and raising low ones (bias +3.5 to +6.9 per
-month vs about 0 for persistence). That reduces big errors and so RMSE. But on the many ordinary
-days, today's value is usually closer than a shrunk value, so ridge collects many small errors and a
-higher MAE. A squared-error model targets the conditional *mean*. MAE is minimised by the *median*,
-and for skewed data like PM2.5 the two differ.
+**Does one win on both metrics?** No. Ridge has the lower RMSE, but persistence has the lower MAE.
+Ridge is trained to make the squared error small, so the few very large misses on polluted days
+matter most to it. To avoid those, it pulls its forecasts towards the average: it lowers very high
+values and raises low ones. Because of this, its forecasts are too high on average by 3.5 to 6.9
+per month, while persistence is about right on average. Pulling towards the average reduces the
+big errors, so RMSE goes down. But on the many normal days, today's value is usually closer to
+tomorrow's than the pulled value is, so ridge makes many small errors and its MAE goes up. In
+simple terms, squared error is smallest when you predict the *mean*, and absolute error is
+smallest when you predict the *median*. PM2.5 has a long tail of very high values, so the mean and
+the median are quite different.
 
 # Part 2: Improved forecast
 
-**Ideas.** (1) All features are `log(1 + PM2.5)`, because pollution changes multiplicatively.
-(2) The target is the log change from today's reading, so the model predicts "today × a factor"
-and regularisation shrinks towards persistence rather than a global mean. (3) A smearing
-correction, `exp(σ²/2)`, removes the downward bias of exponentiating a mean log. (4) Ridge with
-standardised features. The scaler is fitted on training rows only, inside a scikit-learn pipeline.
+**Main ideas.**
+(1) We use `log(1 + PM2.5)` for all features, because pollution tends to change by a factor (for
+example "twice as bad") rather than by a fixed amount.
+(2) The model predicts the change in log PM2.5 from today's reading, so its forecast is "today's
+value × some factor". With this target, regularisation pulls the forecast towards persistence
+instead of towards a single overall average.
+(3) Going back from the log scale makes the forecast slightly too low on average, so we multiply by
+a small correction, `exp(σ²/2)`.
+(4) The model is ridge regression on standardised features. The scaler is fitted on the training
+rows only, inside a scikit-learn pipeline.
 
-**Training rows.** 110,448: every noon target from 9 Jan to 31 Aug at every station. The first
-week is skipped because the features need 7 days of history. Only noon issue times are used, so
-training matches the task exactly.
+**Training rows.** 110,448: every 12:00 target from 9 Jan to 31 Aug at every station. We skip the
+first week because some features need 7 days of history. We only use 12:00 issue times, so training
+matches the real task exactly.
 
-**Feature groups and selection.** We started with 7 groups and removed groups by greedy backward
-elimination on validation (alpha = 100). `past_days` (same hour on previous days, 7 daily means;
-13 features) and `trends` (3, 6 and 24 h changes; 3 features) both made validation *worse*, so they
-were dropped. Their information overlaps with the 24 hourly lags and the 30-day station level.
-Alpha was then tuned on validation over {1, …, 10⁴}. Best: alpha = 300.
+**Feature groups and how we chose them.** We started with 7 groups. We then removed groups one at a
+time, keeping a removal whenever it made validation better (with alpha = 100). Two groups made
+validation *worse* and were dropped: `past_days` (the same hour on each of the previous days, and
+7 daily averages; 13 features) and `trends` (changes over 3, 6 and 24 hours; 3 features). Most of
+what they say is already in the last 24 hourly readings and the 30-day station level. We then
+tuned alpha on validation over values from 1 to 10,000. The best was alpha = 300.
 
-**Ablation of the final model** (remove one group, retrain with the same alpha; final RMSE 28.53):
+**Ablation of the final model.** We remove one group, retrain with the same alpha and compare with
+the final RMSE of 28.53:
 
 | group removed | features | validation RMSE | change |
 |---|---|---|---|
 | recent_hours (last 24 hourly readings) | 24 | 35.66 | +7.13 |
-| calendar (sin/cos day of year, weekend) | 3 | 29.96 | +1.43 |
-| station_level (30-day mean, and vs state) | 2 | 29.15 | +0.62 |
-| network (state mean now / 24 h / 7 days, 24 h change) | 4 | 28.85 | +0.32 |
-| neighbourhood (10 nearest, ≤ 15 km, ≤ 40 km; now and 24 h) | 6 | 28.57 | +0.04 |
+| calendar (sin/cos of day of year, weekend) | 3 | 29.96 | +1.43 |
+| station_level (30-day mean, and the same compared with the state) | 2 | 29.15 | +0.62 |
+| network (state mean now, over 24 h and over 7 days, and its 24 h change) | 4 | 28.85 | +0.32 |
+| neighbourhood (10 nearest stations, within 15 km, within 40 km; now and over 24 h) | 6 | 28.57 | +0.04 |
 
-`recent_hours` carries most of the skill. `calendar` tells the model the season. Training has no
-Sep–Dec dates, so this is partly extrapolation, but December resembles early January, which is in
-training. `neighbourhood` adds little on top of `network` and the station's own lags, because
-nearby stations move together with both.
+`recent_hours` gives most of the accuracy. `calendar` tells the model what time of year it is. The
+training data has no dates from September to December, so the model is guessing a little here, but
+December is similar to early January, which is in the training data. `neighbourhood` adds very
+little, because nearby stations move together with the state average and with the station's own
+recent readings, which the model already has.
 
-**More flexible model.** A random forest on the same features and target fits the training months
-far better (train RMSE 19.5 vs 26.6) but is much worse on validation (36.4 vs 28.5). It overfits
-patterns specific to Jan–Aug (winter smog clearing, a calm monsoon) that don't transfer to the
-Oct–Nov build-up, a season absent from training, and trees cannot extrapolate beyond the targets
-they have seen. Ridge's single smooth rule transfers better, so ridge is the final model.
+**A more flexible model.** A random forest with the same features and target fits the training
+months much better (train RMSE 19.5 against 26.6) but is much worse on validation (36.4 against
+28.5). It learns patterns that only hold in January to August, such as winter smog clearing and a
+calm monsoon, and these do not carry over to the smog build-up in October and November, a season it
+never saw. A tree also cannot predict values outside the range it saw in training. Ridge learns one
+smooth rule, which carries over better, so we kept ridge as our final model.
 
-**Other models tried** (same features and target, validation RMSE / MAE): Bayesian ridge 28.57 /
-15.90, Huber loss 28.65 / 16.04, kernel ridge with an RBF kernel (Nystroem) 33.37 / 18.49, KNN
-(k = 200) 34.02 / 18.84, against 28.53 / 15.96 for the final ridge. Probabilistic models don't help.
-Bayesian ridge's point forecast is almost identical to ridge's, and our model is already
-probabilistic: it assumes a log-normal change, and `exp(σ²/2)` turns that into the expected value.
-The nonlinear models overfit Jan–Aug in the same way as the forest. The limit is the change of
-season and the missing weather data, not model flexibility.
+**Other models we tried** (same features and target, validation RMSE / MAE): Bayesian ridge 28.57 /
+15.90, Huber loss 28.65 / 16.04, kernel ridge with an RBF kernel (Nystroem) 33.37 / 18.49, and
+KNN with k = 200 34.02 / 18.84. Our ridge model gets 28.53 / 15.96. Probabilistic models did not
+help. Bayesian ridge gives almost the same forecast as ridge, and our model is already
+probabilistic in a simple way: it assumes the change on the log scale is normally distributed, and
+`exp(σ²/2)` turns that into the expected value. The non-linear models overfit January to August,
+just like the forest. What limits us is the change of season and the missing weather data, not
+how flexible the model is.
 
-**Final results (validation)**
+**Final results (validation, RMSE / MAE)**
 
 | | all | Sep | Oct | Nov |
 |---|---|---|---|---|
@@ -133,16 +150,16 @@ season and the missing weather data, not model flexibility.
 | Ridge (29 features) | 29.58 / 18.16 | 20.34 / 10.35 | 19.36 / 13.46 | 43.06 / 30.81 |
 | **Our model** | **28.53 / 15.96** | 20.70 / **8.09** | **17.39 / 10.97** | **41.56 / 28.98** |
 
-(RMSE / MAE.) Our model beats both baselines overall on both metrics, and in October and November.
-In September its RMSE is 0.4 worse than ridge's. The gain is real but modest.
+Our model beats both baselines overall on both RMSE and MAE, and also in October and November. In
+September its RMSE is 0.4 worse than ridge's. The improvement is real, but small.
 
-**What would help most:** weather forecasts (wind, rain, boundary-layer height, inversions), which
-drive most day-to-day changes in PM2.5, and satellite fire counts for the Oct–Nov crop-burning
-season.
+**What would help most:** weather forecasts (wind, rain, mixing height, temperature inversions),
+because weather causes most day-to-day changes in PM2.5. Satellite counts of crop fires would also
+help in the October–November burning season.
 
 # Part 3: Lead time
 
-![Validation RMSE vs lead time (left) and the Sep–Nov daily cycle (right).](outputs/figures/lead_time.png){width=100%}
+![Validation RMSE against lead time (left) and the average PM2.5 by hour of day in Sep–Nov (right).](outputs/figures/lead_time.png){width=100%}
 
 | lead | Persistence | Ridge (29) | Our model |
 |---|---|---|---|
@@ -152,77 +169,86 @@ season.
 | 12 h | 72.74 | 31.70 | 34.19 |
 | **24 h (day-ahead)** | 32.75 / 17.47 | 29.58 / 18.16 | **28.53 / 15.96** |
 
-(Validation RMSE, and MAE for 1 h and 24 h.)
+(Validation RMSE, plus MAE for 1 h and 24 h.)
 
-**Persistence** is far from monotonic. Its error is lowest at 1 h, peaks at 12 h (issued at
-midnight), and drops back at 24 h. Persistence copies the value at the issue hour, and night hours
-sit near the daily peak, about 1.5–2 times the noon level in Sep–Nov, while 24 h earlier is noon again, the
-same phase of the daily cycle.
+**Persistence** does not simply get worse as the lead grows. Its error is lowest at 1 h, highest at
+12 h (issued at midnight) and lower again at 24 h. Persistence just copies the reading at the issue
+time. Night readings are near the daily peak, about 1.5 to 2 times the noon level in September to
+November, so a night value is a poor guess for noon. At 24 h the issue time is noon again, the same
+point in the daily cycle as the target.
 
-**The learned models** show a weaker version of the same hump: 6 h is worse than 24 h on
-validation. On *training* data the order is as expected (our model: 23.6 at 6 h vs 26.6 at 24 h). A
-night issue time requires converting a night value to a noon value, and the night/noon ratio is
-unstable. It ranges from 1.1 (Jul–Aug) to 2.5 (Mar–Apr) by month and also varies with daily
-weather. One pooled conversion is wrong on many validation days. Noon-to-noon needs no conversion.
+**The learned models** show a smaller version of the same bump: on validation, 6 h is worse than
+24 h. On the *training* data the order is the normal one (our model: 23.6 at 6 h against 26.6 at
+24 h). With a night issue time, the model has to turn a night value into a noon value, and the
+night-to-noon ratio keeps changing. By month it goes from 1.1 (July–August) to 2.5 (March–April),
+and it also changes with the weather each day. A single learned conversion is wrong on many
+validation days. Noon-to-noon forecasts need no such conversion.
 
-**For a public warning service** we'd use the 24 h lead. The 1-hour nowcast is more accurate (RMSE
-about 19 vs 29), but it leaves no time to act, while a day-ahead warning lets people and schools
-plan. That costs about 10 µg/m³ of RMSE. Intermediate leads (3–12 h) are, here, both less useful and
-less accurate.
+**For a public warning service** we would use the 24 h lead. The 1-hour nowcast is more accurate
+(RMSE about 19 against 29), but it leaves no time to act. A day-ahead warning gives people and
+schools time to plan. The cost is about 10 µg/m³ of RMSE. In our results, the in-between leads
+(3–12 h) are both less useful and less accurate.
 
 # Part 4: Maps
 
-Stations are interpolated to the 3,396-point grid with IDW (p = 2, all stations), using one fixed
-weight matrix for observed and forecast values.
+We interpolate the station values onto the 3,396-point grid with inverse-distance weighting (power
+2, all stations). We use the same weights for observed and forecast values, so any difference
+between maps comes only from the forecasts.
 
 ![Observed, our forecast, persistence and our error for a clean day (15 Sep), a polluted day (27 Nov) and our worst day (29 Nov), all at 12:00 IST.](outputs/figures/maps.png){width=100%}
 
-| mean over 91 validation days | station RMSE | map RMSE | pattern correlation |
+| average over 91 validation days | station RMSE | map RMSE | pattern correlation |
 |---|---|---|---|
 | Persistence | 28.57 | 15.37 | 0.580 |
 | Our model | 24.96 | 13.96 | 0.602 |
 
-On the worst day (29 Nov) the air cleaned up sharply overnight, and both forecasts stayed at the
-previous day's smog level. The error map is positive almost everywhere.
+On our worst day (29 Nov), the air became much cleaner overnight, but both forecasts stayed at the
+previous day's smog level. So the error map is positive almost everywhere.
 
-**Which RMSE is better, and which to quote?** Map RMSE is lower, because IDW averages neighbours
-and smooths out station-level errors in both maps. We should quote **station RMSE**, since it
-compares forecasts with actual measurements. Map RMSE compares two interpolations.
+**Which RMSE is better, and which should we quote?** Map RMSE is lower, because interpolation
+averages nearby stations and smooths out the errors at single stations in both maps. We should
+quote the **station RMSE** as our forecast accuracy, because it compares forecasts with real
+measurements. Map RMSE only compares two interpolated maps.
 
-**Why the observed map isn't ground truth.** Between stations it is a weighted average, not a
-measurement. It can't show hotspots between sensors, it is least reliable where stations are sparse
-(edges of the state), and it inherits sensor errors and the unmarked upstream gap-filling.
+**Why the observed map is not ground truth.** Between stations, the map shows a weighted average,
+not a measurement. It cannot show a hotspot that lies between sensors. It is least reliable where
+stations are far apart, such as near the edges of the state. It also carries any sensor errors and
+the gap-filling that was done before we got the data, which is not marked.
 
-**Good pattern correlation, poor RMSE.** A forecast that ranks the districts correctly but is 40%
-too low everywhere on a smog day has a correlation near 1 and a large RMSE. For a public warning,
-the level matters more, because warnings are triggered by fixed thresholds.
+**Good pattern correlation but poor RMSE.** Imagine a forecast that gets the order of the districts
+right (which are cleaner and which are dirtier) but is 40% too low everywhere on a smog day. Its
+correlation is close to 1, but its RMSE is large. For a public warning, getting the level right
+matters more, because warnings are issued when PM2.5 crosses fixed limits.
 
 # Part 5: Hidden December test
 
-`submission/forecast.py` loads `model.json`, which holds the Part 2 ridge refitted on all 153,036
-noon targets up to 30 Nov with alpha = 300 (scaler means and scales, coefficients, intercept and
-smearing term). Plain JSON needs no particular scikit-learn version, and the notebook checks that the
-saved numbers reproduce the fitted pipeline exactly. `forecast.py` uses the same `features.py` as
-the notebook and `bihar_stations.csv`, and nothing is refitted inside `forecast()`. It keeps only
-rows up to `issue_time`, puts the columns in training order and fills any gap with the last reading.
-`check_submission.py` passes: median call 0.16 s, maximum 0.42 s (limit 10 s). The November sanity
-RMSE (41.3, vs 47.8 for persistence) is in-sample after the refit, so it is not a test score.
+`submission/forecast.py` loads `model.json`. This file holds our Part 2 ridge model, refitted on
+all 153,036 noon targets up to 30 Nov with alpha = 300. It stores the scaler means and scales, the
+coefficients, the intercept and the log correction. Plain JSON does not depend on any particular
+scikit-learn version, and the notebook checks that the saved numbers give exactly the same
+forecasts as the fitted model. `forecast.py` uses the same `features.py` as the notebook, plus
+`bihar_stations.csv`, and nothing is refitted inside `forecast()`. It only uses rows up to
+`issue_time`, puts the columns in the training order and fills any gap with the last reading.
+`check_submission.py` passes: the median call takes 0.16 s and the slowest 0.42 s (the limit is
+10 s). The November check score (RMSE 41.3, against 47.8 for persistence) is not a test score,
+because November is now part of the training data.
 
-**Checks.** Features were unchanged when the future was scrambled or the history cut at the issue
-time (25 random issue times), and a simulated December run (November shifted by 30 days) returned
-30 valid forecasts. An independent re-implementation of both baselines gave the same numbers.
+**Other checks.** We changed or removed all data after the issue time for 25 random issue times,
+and the features stayed exactly the same, so there is no leakage. A practice December run
+(November shifted forward by 30 days) gave 30 valid forecasts. We also wrote the two baselines
+again separately and got the same numbers.
 
 # Limitations
 
-Validation is a single autumn and contains a season (the Oct–Nov smog build-up) that training
-never sees, so model choices are tuned to that one shift. Gap-filled values in the Bihar data are
-not marked, so part of the error is in the "truth" itself. Without weather data, sudden clean-ups
-like 29 Nov can't be anticipated.
+Validation is only one autumn, and it contains a season (the October–November smog build-up) that
+the training data never shows, so our choices are tuned to that one change. Gap-filled values in
+the Bihar data are not marked, so part of our error is in the "true" values themselves. Without
+weather data, we cannot predict sudden clean-ups like the one on 29 Nov.
 
 # Use of AI tools
 
-_[Edit this to match exactly what your group did.]_ We used Claude (Anthropic) as a coding
-assistant to draft and debug the analysis code, run the experiments, make the plots and draft parts
-of this report text. All modelling choices were checked against validation results, and we
-verified the leakage rules (features at or before the issue time, scaler fitted on training rows,
-time-based split). Every group member has gone through the code and can explain it.
+We used Claude (Anthropic) as a coding assistant to draft and debug the analysis code, run the
+experiments, make the plots and draft parts of this report. We checked every modelling choice
+against the validation results. We also checked the leakage rules ourselves: features only use data
+up to the issue time, the scaler is fitted on training rows only, and the split is by time. Every
+group member has gone through the code and can explain it.
