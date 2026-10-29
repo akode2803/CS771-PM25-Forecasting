@@ -16,6 +16,8 @@ one reading per hour, always at minute :00, which comes to about 16–19 reading
 12-character sensor sends a reading every 15 minutes. No sensor moves: each one always has the same
 latitude and longitude. The 10-digit sensors give whole numbers. The 8-character sensors give long
 decimals, which look like averages, and their readings are a little lower (median 32 vs 37).
+The raw file has 85,762 readings, which become 82,131 sensor-hours after hourly averaging (only the
+15-minute sensor changes).
 
 **Making an hourly table.** We take the average of all readings inside each hour and label the hour by
 its start time. Error codes are removed before averaging. This only matters for the 15-minute
