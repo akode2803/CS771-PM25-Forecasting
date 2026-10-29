@@ -11,13 +11,13 @@ jupyter notebook
 |---|---|
 | `part0_kanpur_cleaning.ipynb` | Part 0: Kanpur cleaning, flags, calibration check |
 | `bihar_forecasting.ipynb` | Parts 1–5: baselines, our model, ablation, lead time, maps, final refit |
-| `submission/` | Part 5 hand-in: `forecast.py`, `features.py`, `model.pkl`, `bihar_stations.csv` |
+| `submission/` | Part 5 hand-in: `forecast.py`, `features.py`, `model.json`, `bihar_stations.csv` |
 | `outputs/kanpur_hourly_clean.csv` | The cleaned Kanpur file |
 | `outputs/figures/` | Figures used in the report |
 | `report.md`, `report.pdf` | The report (5 pages) |
 
-Run order: `part0_kanpur_cleaning.ipynb` (about 20 s), then `bihar_forecasting.ipynb` (about 1 min).
-The second one rewrites `submission/model.pkl`.
+Run order: `part0_kanpur_cleaning.ipynb` (about 20 s), then `bihar_forecasting.ipynb` (about 3 min).
+The second one rewrites `submission/model.json`.
 
 Check the submission from inside `mp1-package/`:
 ```

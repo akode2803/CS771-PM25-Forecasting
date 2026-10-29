@@ -21,7 +21,10 @@ excluded before averaging. Averaging only changes the 15-minute sensor: the mean
 :00 reading by 2.6 on average and by up to 18.5 in single hours, and it uses four readings instead
 of one, so it is less noisy.
 
-**Flags.** Each sensor-hour gets the first rule that applies. Nothing is deleted or filled.
+**Flags.** Each sensor-hour gets the first rule that applies, then every hour of a dropped sensor
+is marked `dropped_sensor`. Nothing is deleted or filled. The table counts what each rule catches on
+its own; the final file has ok 79,512, dropped_sensor 1,734, stuck 559, spike 141, error_code 136
+and zero 49.
 
 | flag | rule and threshold | caught |
 |---|---|---|
@@ -114,6 +117,14 @@ patterns specific to Jan–Aug (winter smog clearing, a calm monsoon) that don't
 Oct–Nov build-up, a season absent from training, and trees cannot extrapolate beyond the targets
 they have seen. Ridge's single smooth rule transfers better, so ridge is the final model.
 
+**Other models tried** (same features and target, validation RMSE / MAE): Bayesian ridge 28.57 /
+15.90, Huber loss 28.65 / 16.04, kernel ridge with an RBF kernel (Nystroem) 33.37 / 18.49, KNN
+(k = 200) 34.02 / 18.84, against 28.53 / 15.96 for the final ridge. Probabilistic models don't help.
+Bayesian ridge's point forecast is almost identical to ridge's, and our model is already
+probabilistic: it assumes a log-normal change, and `exp(σ²/2)` turns that into the expected value.
+The nonlinear models overfit Jan–Aug in the same way as the forest. The limit is the change of
+season and the missing weather data, not model flexibility.
+
 **Final results (validation)**
 
 | | all | Sep | Oct | Nov |
@@ -188,11 +199,18 @@ the level matters more, because warnings are triggered by fixed thresholds.
 
 # Part 5: Hidden December test
 
-`submission/forecast.py` loads `model.pkl`, which holds the Part 2 ridge refitted on all 153,036
-noon targets up to 30 Nov with alpha = 300. It also uses the same `features.py` as the notebook
-and `bihar_stations.csv`. Nothing is refitted inside `forecast()`. `check_submission.py` passes:
-median call 0.04 s, maximum 0.26 s (limit 10 s). The November sanity RMSE (41.3, vs 47.8 for
-persistence) is in-sample after the refit, so it is not a test score.
+`submission/forecast.py` loads `model.json`, which holds the Part 2 ridge refitted on all 153,036
+noon targets up to 30 Nov with alpha = 300 (scaler means and scales, coefficients, intercept and
+smearing term). Plain JSON needs no particular scikit-learn version, and the notebook checks that the
+saved numbers reproduce the fitted pipeline exactly. `forecast.py` uses the same `features.py` as
+the notebook and `bihar_stations.csv`, and nothing is refitted inside `forecast()`. It keeps only
+rows up to `issue_time`, puts the columns in training order and fills any gap with the last reading.
+`check_submission.py` passes: median call 0.16 s, maximum 0.42 s (limit 10 s). The November sanity
+RMSE (41.3, vs 47.8 for persistence) is in-sample after the refit, so it is not a test score.
+
+**Checks.** Features were unchanged when the future was scrambled or the history cut at the issue
+time (25 random issue times), and a simulated December run (November shifted by 30 days) returned
+30 valid forecasts. An independent re-implementation of both baselines gave the same numbers.
 
 # Limitations
 
