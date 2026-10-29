@@ -123,11 +123,10 @@ def trends(L, p, t, nbrs):
 
 
 def variability(L, p, t, nbrs):
-    """How unsettled the air is: spread across the state now, the station's ups and downs over the
-    last 24 hours, and how much its 10 nearest neighbours changed over the last 24 hours."""
+    """How unsettled the air is: the station's ups and downs over the last 24 hours, and how much
+    its 10 nearest neighbours changed over the last 24 hours."""
     near = nbrs["nearest10"]
     return {
-        "net_spread_now": L[p].std(),
         "station_std_24h": L[p - 23:p + 1].std(axis=0),
         "nbr10_change_24h": L[p][near].mean(axis=1) - L[p - 24][near].mean(axis=1),
     }

@@ -107,39 +107,39 @@ looks exactly like the real task.
 70% of the squared error, and the worst 10 days (all in late November) cause 43%. Targets above 200
 are only 2.7% of rows but cause 38% of the squared error, and on them we forecast too low by 79 on
 average. Only 18% of the error is the whole state being off together; the rest is single stations
-jumping. So we added a `variability` group that describes how unsettled the air is: how spread out
-the readings are across the state now, how much the station went up and down in the last 24 h (std),
-and how much its 10 nearest neighbours changed in the last 24 h (3 features).
+jumping. So we added a `variability` group that describes how unsettled the air is: how much the
+station went up and down in the last 24 h (std), and how much its 10 nearest neighbours changed in
+the last 24 h (2 features).
 
 **Choosing feature groups.** We had 8 groups. We removed one group at a time, kept the removal if
 validation got better, and repeated. Then we tuned alpha over {1, …, 10⁴}, ran the group removal
-again with that alpha, and stopped when neither the groups nor alpha changed. With alpha = 100 the
-removal dropped `past_days` and `neighbourhood`; with the tuned alpha = 1000 it dropped `past_days`
-(the same hour on the previous 6 days and the last 7 daily means, 13 features) and `trends` (changes
-over 3, 6 and 24 h, 3 features), and that result was stable. The 24 hourly readings and the 30-day
-station level already carry the same information as these two groups. Final: 6 groups, 42
-features, alpha = 1000.
+again with that alpha, and stopped when neither the groups nor alpha changed. This dropped
+`past_days` (the same hour on the previous 6 days and the last 7 daily means, 13 features) and
+`trends` (changes over 3, 6 and 24 h, 3 features). The 24 hourly readings and the 30-day station
+level already carry the same information. On validation alpha = 300 and 1000 were within 0.01
+(28.49 vs 28.50), so we took 1000: stronger regularisation is safer for a new month. Final:
+6 groups, 41 features, alpha = 1000.
 
 **Ablation of the final model.** We remove one group, retrain with the same alpha and compare with
-the final validation RMSE of 28.20 (before mixing with persistence):
+the final validation RMSE of 28.50 (before mixing with persistence):
 
 | group removed | features | validation RMSE | change |
 |---|---|---|---|
-| recent_hours (last 24 hourly readings) | 24 | 35.40 | +7.20 |
-| calendar (sin/cos of day of year, weekend) | 3 | 29.92 | +1.72 |
-| station_level (30-day mean, and how it compares with the state) | 2 | 29.03 | +0.83 |
-| variability (state spread now, station std over 24 h, neighbours' 24 h change) | 3 | 28.53 | +0.33 |
-| network (state mean now, over 24 h and over 7 days, and its 24 h change) | 4 | 28.42 | +0.22 |
-| neighbourhood (10 nearest stations, within 15 km and within 40 km; now and over 24 h) | 6 | 28.23 | +0.03 |
+| recent_hours (last 24 hourly readings) | 24 | 36.35 | +7.85 |
+| calendar (sin/cos of day of year, weekend) | 3 | 29.59 | +1.09 |
+| station_level (30-day mean, and how it compares with the state) | 2 | 29.39 | +0.89 |
+| network (state mean now, over 24 h and over 7 days, and its 24 h change) | 4 | 28.75 | +0.25 |
+| neighbourhood (10 nearest stations, within 15 km and within 40 km; now and over 24 h) | 6 | 28.58 | +0.08 |
+| variability (station std over 24 h, neighbours' 24 h change) | 2 | 28.53 | +0.03 |
 
 Most of the skill comes from `recent_hours`. `calendar` tells the model the season. Training has no
 dates from Sep–Dec, so here the model has to go beyond what it has seen, but December is similar to
-early January, which is in training. The new `variability` group is the fourth most useful.
-`neighbourhood` adds very little, because nearby stations move together with the station itself
-and with the whole state, which other groups already cover.
+early January, which is in training. `neighbourhood` and `variability` add very little, because
+nearby stations move together with the station itself and with the whole state, which other groups
+already cover.
 
 **A more flexible model.** We tried a random forest with the same features and target. It fits the
-training months much better (train RMSE 19.4 vs 26.5) but is much worse on validation (36.8 vs 28.2).
+training months much better (train RMSE 19.4 vs 26.6) but is much worse on validation (36.4 vs 28.5).
 It overfits. It learns patterns that only hold in Jan–Aug, like how the winter smog cleared and how
 calm the monsoon was. These do not carry over to the smog build-up in Oct–Nov, a season that is not
 in training at all. Trees also cannot predict values outside the range they saw in training.
@@ -151,11 +151,11 @@ Ridge learns one simple, smooth rule, and that works better on new months. So ri
 |---|---|---|---|---|
 | Persistence | 32.75 / 17.47 | 23.33 / 8.91 | 20.22 / 11.97 | 47.81 / 31.70 |
 | Ridge (29 features) | 29.58 / 18.16 | 20.34 / 10.35 | 19.36 / 13.46 | 43.06 / 30.81 |
-| Our model, before mixing | 28.20 / 16.02 | 20.51 / 8.27 | 17.54 / 11.30 | 40.92 / 28.63 |
-| **Our model (final)** | **28.09 / 15.88** | **20.19 / 8.19** | **17.42 / 11.15** | **40.90 / 28.46** |
+| Our model, before mixing | 28.50 / 16.10 | 20.54 / 8.23 | 17.53 / 11.21 | 41.52 / 29.02 |
+| **Our model (final)** | **28.39 / 15.98** | **20.23 / 8.15** | **17.42 / 11.10** | **41.51 / 28.86** |
 
 Our final model beats both baselines on both metrics, overall and in every month. Mixing with
-persistence adds a small gain (28.20 → 28.09). The improvement is real, but small.
+persistence adds a small gain (28.50 → 28.39). The improvement is real, but small.
 
 **Other things we tried that did not help** (validation RMSE): giving recent training months more
 weight (28.7 to 36.7), Huber loss (28.5), gradient boosting with shallow trees (34.7 to 41.1),
@@ -172,11 +172,11 @@ would also help in the Oct–Nov burning season.
 
 | lead | Persistence | Ridge (29) | Our model |
 |---|---|---|---|
-| **1 h (nowcast)** | 23.95 / 10.36 | **18.95** / 8.67 | 19.07 / **8.30** |
-| 3 h | 51.43 | 28.37 | 32.05 |
-| 6 h | 66.82 | 33.72 | 36.30 |
-| 12 h | 72.74 | 31.70 | 33.98 |
-| **24 h (day-ahead)** | 32.75 / 17.47 | 29.58 / 18.16 | **28.09 / 15.88** |
+| **1 h (nowcast)** | 23.95 / 10.36 | **18.95** / 8.67 | 19.23 / **8.40** |
+| 3 h | 51.43 | 28.37 | 32.44 |
+| 6 h | 66.82 | 33.72 | 41.17 |
+| 12 h | 72.74 | 31.70 | 37.18 |
+| **24 h (day-ahead)** | 32.75 / 17.47 | 29.58 / 18.16 | **28.39 / 15.98** |
 
 (Validation RMSE, plus MAE for 1 h and 24 h.)
 
@@ -187,7 +187,7 @@ them gives forecasts that are far too high. 24 hours earlier is noon again, the 
 daily cycle, so persistence does well again.
 
 **The learned models show a smaller version of the same bump.** On validation, 6 h is worse than
-24 h. On the *training* data the order is as you would expect (our model: 24.3 at 6 h vs 26.5 at
+24 h. On the *training* data the order is as you would expect (our model: 24.2 at 6 h vs 26.6 at
 24 h). A forecast made at night has to turn a night value into a noon value, and the night/noon ratio
 is not stable. It goes from 1.1 (Jul–Aug) to 2.5 (Mar–Apr) by month, and it also changes with the
 weather each day. One average conversion is wrong on many validation days. A noon-to-noon forecast
@@ -208,7 +208,7 @@ all stations). We use the same weights for the observed and the forecast maps.
 | mean over the 91 validation days | station RMSE | map RMSE | pattern correlation |
 |---|---|---|---|
 | Persistence | 28.57 | 15.37 | 0.580 |
-| Our model | 24.67 | 13.85 | 0.616 |
+| Our model | 24.76 | 13.88 | 0.616 |
 
 On our worst day (29 Nov), the air suddenly got much cleaner overnight, but both forecasts stayed at
 the smog level of the day before. That is why the error map is positive almost everywhere.
@@ -236,7 +236,7 @@ plain numpy arrays (scaler mean and scale, coefficients, intercept, smearing ter
 version. It uses the same `features.py` as the notebook, and `bihar_stations.csv`. Nothing is
 refitted inside `forecast()`. If a reading is ever missing, we fill it with the same station's last
 value, so a gap cannot crash a call. `check_submission.py` passes: each call takes under 0.3 s (the limit is
-10 s). The November check gives RMSE 40.8 (persistence: 47.8), but this
+10 s). The November check gives RMSE 41.2 (persistence: 47.8), but this
 is not a test score, because November is now part of the training data.
 
 # Limitations
