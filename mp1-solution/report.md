@@ -32,7 +32,7 @@ and zero 49.
 | zero | pm25 = 0 (outdoor PM2.5 is never exactly zero) | 813 h, 21 sensors, almost all from 2 sensors |
 | stuck | same value for ≥ 24 consecutive reported hours (real PM2.5 follows a daily cycle) | 1,693 h, 7 sensors, e.g. 78 for 126 h, 14.2 for 74 h |
 | spike | > 200 *and* > 5 × that hour's network median (city median ≈ 35 in the monsoon) | 141 h, half from 4 sensors |
-| outage | fewer than 10% of sensors report that hour | 117 h (5–10 Aug) with **no** sensor reporting at all. Every other hour has ≥ 12%, so 10% cleanly separates the two. |
+| outage | fewer than 10% of sensors report that hour | 117 h (5–10 Aug) with **no** sensor reporting at all. Every other hour has ≥ 12%, so 10% cleanly separates the two. These hours have no readings, so no row carries the flag. |
 | dropped_sensor | > 50% of a sensor's hours flagged | `1203260082` (73%), `1203260068` (58%) |
 
 Correlation of each sensor's ok readings with the median of all other sensors (median r = 0.76)
