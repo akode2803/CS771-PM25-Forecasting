@@ -103,8 +103,7 @@ def station_level(L, p, t, nbrs):
     return {"level_30d": month.mean(axis=0), "level_30d_vs_state": month.mean(axis=0) - month.mean()}
 
 
-# Two more ideas we tried. They made validation worse, so the final model leaves them out
-# (see the notebook, Part 2).
+# More ideas we tried. The notebook (Part 2) decides on validation which groups to keep.
 def past_days(L, p, t, nbrs):
     """Longer memory: the same hour on each of the previous 6 days, and the last 7 daily means."""
     f = {f"same_hour_d-{k}": L[p - 24 * k] for k in range(1, 7)}
@@ -123,6 +122,17 @@ def trends(L, p, t, nbrs):
     }
 
 
+def variability(L, p, t, nbrs):
+    """How unsettled the air is: spread across the state now, the station's ups and downs over the
+    last 24 hours, and how much its 10 nearest neighbours changed over the last 24 hours."""
+    near = nbrs["nearest10"]
+    return {
+        "net_spread_now": L[p].std(),
+        "station_std_24h": L[p - 23:p + 1].std(axis=0),
+        "nbr10_change_24h": L[p][near].mean(axis=1) - L[p - 24][near].mean(axis=1),
+    }
+
+
 FEATURE_GROUPS = {
     "recent_hours": recent_hours,
     "neighbourhood": neighbourhood,
@@ -131,8 +141,9 @@ FEATURE_GROUPS = {
     "station_level": station_level,
     "past_days": past_days,
     "trends": trends,
+    "variability": variability,
 }
-FINAL_GROUPS = ["recent_hours", "neighbourhood", "network", "calendar", "station_level"]
+FINAL_GROUPS = ["recent_hours", "neighbourhood", "network", "calendar", "station_level", "variability"]
 HISTORY_NEEDED = 168          # hours of history the features need (one week)
 
 

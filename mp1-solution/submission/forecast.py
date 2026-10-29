@@ -1,7 +1,7 @@
 """Part 5 submission: next-day 12:00 PM2.5 forecast for all 468 Bihar stations.
 
 The model (a ridge regression on log-scale features) was fitted in the notebook and saved to
-model.pkl as plain numpy arrays (scaler mean and scale, ridge coefficients and intercept), so it
+model.pkl as plain numpy arrays (scaler mean and scale, ridge coefficients and intercept, mixing weight), so it
 does not depend on the grader's scikit-learn version. Here we only load it and compute features.
 Nothing is refitted.
 """
@@ -39,6 +39,8 @@ def forecast(history: pd.DataFrame, issue_time: pd.Timestamp) -> pd.Series:
 
     X = my_features(A, p, issue_time, NBRS)[SAVED["columns"]].to_numpy()
     log_change = (X - SAVED["mean"]) / SAVED["scale"] @ SAVED["coef"] + SAVED["intercept"] + SAVED["smear"]
-    prediction = np.expm1(np.log1p(np.clip(A[p], 0, None)) + log_change)
+    today = np.clip(A[p], 0, None)
+    model = np.expm1(np.log1p(today) + log_change)
+    prediction = SAVED["blend"] * model + (1 - SAVED["blend"]) * today      # mix with persistence
 
     return pd.Series(np.clip(prediction, 0, None), index=STATIONS.index, name="pm25_forecast")
