@@ -22,13 +22,22 @@ def station_distances_km(stations):
 
 
 def neighbour_sets(stations):
-    """For each station: its 10 nearest other stations, and the stations within 15 km and 40 km."""
+    """For each station: its 10 nearest other stations, the stations within 15 km and 40 km, and
+    the stations 30-150 km away in each compass sector (E, N, W, S: 90 degrees each)."""
     d = station_distances_km(stations)
     np.fill_diagonal(d, np.inf)                  # a station is not its own neighbour
+    x = (stations["longitude"].to_numpy() - 85.5) * 100.3
+    y = (stations["latitude"].to_numpy() - 25.7) * 110.6
+    angle = np.degrees(np.arctan2(y[None, :] - y[:, None], x[None, :] - x[:, None])) % 360
+    ring = (d >= 30) & (d <= 150)
     return {
         "nearest10": np.argsort(d, axis=1)[:, :10],     # shape (468, 10), indices
         "within15": d <= 15,                            # shape (468, 468), True/False
         "within40": d <= 40,
+        "sector_E": ring & ((angle < 45) | (angle >= 315)),
+        "sector_N": ring & (angle >= 45) & (angle < 135),
+        "sector_W": ring & (angle >= 135) & (angle < 225),
+        "sector_S": ring & (angle >= 225) & (angle < 315),
     }
 
 
@@ -132,6 +141,17 @@ def variability(L, p, t, nbrs):
     }
 
 
+def sectors(L, p, t, nbrs):
+    """Direction matters: the mean of the stations 30-150 km away in each compass sector, now and
+    as a 24 h change (pollution moves between regions)."""
+    f = {}
+    for k in "ENWS":
+        mask = nbrs[f"sector_{k}"]
+        f[f"sector_{k}_now"] = mean_over(mask, L[p])
+        f[f"sector_{k}_change_24h"] = mean_over(mask, L[p]) - mean_over(mask, L[p - 24])
+    return f
+
+
 FEATURE_GROUPS = {
     "recent_hours": recent_hours,
     "neighbourhood": neighbourhood,
@@ -141,8 +161,9 @@ FEATURE_GROUPS = {
     "past_days": past_days,
     "trends": trends,
     "variability": variability,
+    "sectors": sectors,
 }
-FINAL_GROUPS = ["recent_hours", "neighbourhood", "network", "calendar", "station_level", "variability"]
+FINAL_GROUPS = ["recent_hours", "network", "calendar", "station_level", "trends", "variability", "sectors"]
 HISTORY_NEEDED = 168          # hours of history the features need (one week)
 
 
