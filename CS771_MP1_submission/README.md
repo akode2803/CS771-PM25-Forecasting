@@ -14,15 +14,14 @@ jupyter notebook
 | `submission/` | Part 5 hand-in: `forecast.py`, `features.py`, `model.pkl`, `bihar_stations.csv` |
 | `outputs/kanpur_hourly_clean.csv` | The cleaned Kanpur file |
 | `outputs/figures/` | Figures used in the report |
-| `report.md`, `report.pdf` | The report (5 pages) |
-| `build_report.py` | Rebuilds `report.pdf` from `report.md` (`pip install markdown`, needs Edge or Chrome) |
+| `report.pdf` | The report (6 pages) |
 
 Run order: `part0_kanpur_cleaning.ipynb` (about 20 s), then `bihar_forecasting.ipynb` (about 1 min).
 The second one rewrites `submission/model.pkl`.
 
 Check the submission from inside `mp1-package/`:
 ```
-python starter/check_submission.py ../mp1-solution/submission
+python starter/check_submission.py <path to this folder>/submission
 ```
 
 `submission/features.py` holds all the feature code, so the notebook and `forecast.py` compute the
